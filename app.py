@@ -12,9 +12,10 @@ import os
 from gtts import gTTS
 import numpy as np
 import streamlit as st
+from openai import OpenAI
 
 class MarketingVideoGenerator:
-    def __init__(self, aria_api_key: str, aria_base_url: str, allegro_token: str):
+    def __init__(self, aria_api_key: str, aria_base_url: str, allegro_token: str, openai_api_key : str):
         self.allegro_token = allegro_token
         self.chat = ChatOpenAI(
             model="aria",
@@ -23,8 +24,10 @@ class MarketingVideoGenerator:
             streaming=False,
             stop=["<|im_end|>"]
         )
+
         self.logger = logging.getLogger(__name__)
         logging.basicConfig(level=logging.INFO)
+        self.client = OpenAI(api_key = openai_api_key)
         self.temp_dir = tempfile.mkdtemp()
         self.SEGMENT_DURATION = 6  # seconds
         self.TOTAL_SEGMENTS = 3    # 3 segments for 18 seconds total
@@ -193,12 +196,32 @@ class MarketingVideoGenerator:
                 self.logger.error(f"Error checking video status: {str(e)}")
                 raise
 
+    # def generate_segment_audio(self, script: str, index: int) -> str:
+    #     """Generate audio for a single segment"""
+    #     try:
+    #         audio_path = os.path.join(self.temp_dir, f'voiceover_{index}.mp3')
+    #         tts = gTTS(text=script, lang='en', slow=False)
+    #         tts.save(audio_path)
+    #         return audio_path
+    #     except Exception as e:
+    #         self.logger.error(f"Error in audio generation: {str(e)}")
+    #         raise
+
     def generate_segment_audio(self, script: str, index: int) -> str:
-        """Generate audio for a single segment"""
+        """Generate audio for a single segment using OpenAI's TTS API with streaming."""
         try:
             audio_path = os.path.join(self.temp_dir, f'voiceover_{index}.mp3')
-            tts = gTTS(text=script, lang='en', slow=False)
-            tts.save(audio_path)
+
+            # Create the audio streaming response
+            response = self.client.audio.speech.create(
+                model="tts-1",
+                voice="alloy",
+                input=script,
+            )
+
+            # Stream audio directly to the file
+            response.stream_to_file(audio_path)
+
             return audio_path
         except Exception as e:
             self.logger.error(f"Error in audio generation: {str(e)}")
@@ -217,7 +240,7 @@ class MarketingVideoGenerator:
         img_w, img_h = pil_image.size
         
         # Set font size
-        fontsize = 30
+        fontsize = 1000
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", fontsize)
         except:
@@ -230,10 +253,10 @@ class MarketingVideoGenerator:
         
         # Calculate text position (centered, near bottom)
         x = (img_w - text_width) // 2
-        y = img_h - text_height - 50
+        y = img_h - text_height - 125
         
         # Draw semi-transparent background
-        padding = 10
+        padding = 15
         bg_bbox = [
             x - padding,
             y - padding,
@@ -271,12 +294,20 @@ class MarketingVideoGenerator:
 
                 with open(temp_video_path, "wb") as f:
                     f.write(response.content)
+
+                # Get audio duration using ffprobe
+                audio_duration = float(os.popen(
+                    f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {audio_path}'
+                ).read().strip())
                 
                 # Open video
                 cap = cv2.VideoCapture(temp_video_path)
                 fps = int(cap.get(cv2.CAP_PROP_FPS))
                 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+                # Calculate required number of frames for audio duration
+                required_frames = int(audio_duration * fps)
                 
                 # Create temporary output video for this segment
                 temp_output = os.path.join(self.temp_dir, f'segment_{i}.mp4')
@@ -285,12 +316,27 @@ class MarketingVideoGenerator:
                                     fps, (frame_width, frame_height))
                 
                 # Process each frame
+                original_frames = []
                 while cap.isOpened():
                     ret, frame = cap.read()
                     if not ret:
                         break
+                    original_frames.append(frame)
                     
                     # Add text overlay
+                    # frame_with_text = self.add_text_to_frame(frame, script)
+                    # out.write(frame_with_text)
+
+                  # If video is shorter than audio, loop frames
+                if len(original_frames) < required_frames:
+                    while len(original_frames) < required_frames:
+                        original_frames.extend(original_frames[:required_frames - len(original_frames)])
+                # If video is longer than audio, truncate frames
+                elif len(original_frames) > required_frames:
+                    original_frames = original_frames[:required_frames]
+                
+                # Process frames with text overlay and write to output
+                for frame in original_frames:
                     frame_with_text = self.add_text_to_frame(frame, script)
                     out.write(frame_with_text)
                 
@@ -441,6 +487,7 @@ with st.sidebar:
     aria_api_key = st.text_input("Aria API Key", type="password")
     aria_base_url = st.text_input("Aria Base URL")
     allegro_token = st.text_input("Allegro Token", type="password")
+    openai_api_key = st.text_input("OpenAI API Key", type="password")
 
 # Main content area
 content_input = st.text_area("Enter your marketing content:", height=150)
@@ -456,7 +503,8 @@ if generate_button and content_input:
         generator = MarketingVideoGenerator(
             aria_api_key=aria_api_key,
             aria_base_url=aria_base_url,
-            allegro_token=allegro_token
+            allegro_token=allegro_token,
+            openai_api_key = openai_api_key
         )
         
         # Create temporary output path
@@ -464,6 +512,8 @@ if generate_button and content_input:
         
         # Step 1: Content Analysis
         update_status("Analyzing content and generating scripts...", 10)
+
+        #Comment below 1 line if wish to skip video generation time
         content_analysis = generator.analyze_content(content_input)
 
         # Uncomment below 3 lines if wish to skip video generation time
@@ -507,7 +557,7 @@ if generate_button and content_input:
 
         # Uncomment below 1 line if wish to skip video generation time
 
-        #video_paths = ['https://apiplatform-rhymes-prod-va.s3.amazonaws.com/20241103015632.mp4','https://apiplatform-rhymes-prod-va.s3.amazonaws.com/20241103020054.mp4','https://apiplatform-rhymes-prod-va.s3.amazonaws.com/20241103020516.mp4']
+        # video_paths = ['https://apiplatform-rhymes-prod-va.s3.amazonaws.com/20241103015632.mp4','https://apiplatform-rhymes-prod-va.s3.amazonaws.com/20241103020054.mp4','https://apiplatform-rhymes-prod-va.s3.amazonaws.com/20241103020516.mp4']
         
         update_status("Generating audio segments...", 80)
         audio_paths = []
