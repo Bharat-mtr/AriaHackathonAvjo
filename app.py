@@ -240,7 +240,7 @@ class MarketingVideoGenerator:
         img_w, img_h = pil_image.size
         
         # Set font size
-        fontsize = 50
+        fontsize = 30
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", fontsize)
         except:
