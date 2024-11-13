@@ -85,11 +85,10 @@ class MarketingVideoGenerator:
             for i in range(1, self.TOTAL_SEGMENTS + 1):
                 scene_start = content.find(f"Scene Description {i}:")
                 scene_end = content.find(f"Voiceover Script {i}:")
-                next_segment = (
-                    content.find(f"Scene Description {i+1}:")
-                    if i < self.TOTAL_SEGMENTS
-                    else len(content)
-                )
+                next_segment = content.find(f"Scene Description {i+1}:")
+                if(next_segment == -1):
+                    next_segment = len(content)
+                
 
                 scene_desc = content[scene_start:scene_end].split(":", 1)[1].strip()
                 voiceover = content[scene_end:next_segment].split(":", 1)[1].strip()
