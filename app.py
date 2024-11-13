@@ -39,14 +39,14 @@ class MarketingVideoGenerator:
         self.client = OpenAI(api_key=openai_api_key)
         self.temp_dir = tempfile.mkdtemp()
         self.SEGMENT_DURATION = 6  # seconds
-        self.TOTAL_SEGMENTS = 10  # 10 segments for 60 seconds total
+        self.TOTAL_SEGMENTS = 5  # 10 segments for 60 seconds total
         self.VIDEO_GENERATION_WAIT = 120  # 2 minutes minimum wait
 
     def analyze_content(self, content: str) -> Dict[str, List[str]]:
         """
         Analyze content to generate ten 6-second scene descriptions and voiceover scripts.
         """
-        system_prompt = """You are a dual-expert in visual direction and marketing. Create ten 6-second segments, each with:
+        system_prompt = """You are a dual-expert in visual direction and marketing. Create five 6-second segments, each with:
 
         1. Visual Scene Descriptions:
         Generate ten distinct 6-second scene descriptions that Allegro can use. Each should:
